@@ -70,7 +70,9 @@ ENV NODE_ENV=production \
     PYTHONUNBUFFERED=1
 
 EXPOSE 3000
-VOLUME ["/data"]
+# NOTE: tidak pakai VOLUME directive — Railway tolak itu. Mount /data via
+# Railway Volumes feature di dashboard (Settings → Volumes). Buat platform
+# lain (Fly, Docker host), tambahin `-v scrapebit-data:/data` di run.
 
 ENTRYPOINT ["/usr/bin/dumb-init", "--", "docker-entrypoint.sh"]
 CMD ["node", "server.js"]
