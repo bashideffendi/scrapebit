@@ -23,7 +23,9 @@ type AuthState =
 
 export function ScraperShell({ initialTickers }: { initialTickers: Ticker[] }) {
   const [tickers, setTickers] = useState<Ticker[]>(initialTickers);
-  const [tickersLastModified, setTickersLastModified] = useState<string | null>(null);
+  const [tickersLastModified, setTickersLastModified] = useState<string | null>(
+    null,
+  );
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [periods, setPeriods] = useState<Set<PeriodType>>(
@@ -62,7 +64,7 @@ export function ScraperShell({ initialTickers }: { initialTickers: Ticker[] }) {
     return () => clearInterval(t);
   }, [checkAuth]);
 
-  // ── Fetch tickers from API (overrides initial static) ───────────────────
+  // ── Fetch tickers from API ──────────────────────────────────────────────
   const reloadTickers = useCallback(async () => {
     try {
       const r = await fetch("/api/tickers");
@@ -83,7 +85,7 @@ export function ScraperShell({ initialTickers }: { initialTickers: Ticker[] }) {
     void reloadTickers();
   }, [reloadTickers]);
 
-  // ── Poll active job ─────────────────────────────────────────────────────
+  // ── Polling ─────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!activeJob || activeJob.state === "done" || activeJob.state === "failed")
       return;
@@ -94,7 +96,6 @@ export function ScraperShell({ initialTickers }: { initialTickers: Ticker[] }) {
     return () => clearInterval(id);
   }, [activeJob]);
 
-  // ── Poll refresh job ─────────────────────────────────────────────────────
   useEffect(() => {
     if (
       !refreshJob ||
@@ -113,9 +114,7 @@ export function ScraperShell({ initialTickers }: { initialTickers: Ticker[] }) {
     return () => clearInterval(id);
   }, [refreshJob, reloadTickers]);
 
-  // ── Filter tickers ──────────────────────────────────────────────────────
-  // matchedAll: SEMUA ticker yg match search (buat "select all matching")
-  // filtered: max 100 baris buat render (perf)
+  // ── Filtered tickers ────────────────────────────────────────────────────
   const matchedAll = useMemo(() => {
     const q = search.toLowerCase().trim();
     if (!q) return tickers;
@@ -127,16 +126,15 @@ export function ScraperShell({ initialTickers }: { initialTickers: Ticker[] }) {
     );
   }, [tickers, search]);
 
-  const filtered = useMemo(() => {
-    return search.trim() ? matchedAll.slice(0, 100) : tickers.slice(0, 50);
-  }, [matchedAll, search, tickers]);
+  const filtered = useMemo(
+    () => (search.trim() ? matchedAll.slice(0, 100) : tickers.slice(0, 50)),
+    [matchedAll, search, tickers],
+  );
 
-  // Sector quick-filter chips (top sectors from full list)
   const topSectors = useMemo(() => {
     const counts = new Map<string, number>();
     for (const t of tickers) {
       for (const s of t.sectors) {
-        // Skip indeks/listing-board buckets (noise)
         if (
           s === "Indeks" ||
           s === "Indeks Sektoral" ||
@@ -160,27 +158,6 @@ export function ScraperShell({ initialTickers }: { initialTickers: Ticker[] }) {
       return next;
     });
   }
-
-  function selectAllMatching() {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      for (const t of matchedAll) next.add(t.ticker);
-      return next;
-    });
-  }
-
-  function clearSelection() {
-    setSelected(new Set());
-  }
-
-  function invertSelection() {
-    setSelected((prev) => {
-      const next = new Set<string>();
-      for (const t of matchedAll) if (!prev.has(t.ticker)) next.add(t.ticker);
-      return next;
-    });
-  }
-
   function toggleField(f: ScrapeFieldId) {
     setFields((prev) => {
       const next = new Set(prev);
@@ -189,15 +166,6 @@ export function ScraperShell({ initialTickers }: { initialTickers: Ticker[] }) {
       return next;
     });
   }
-
-  function selectAllFields() {
-    setFields(new Set(SCRAPE_FIELDS.map((f) => f.id)));
-  }
-
-  function clearFields() {
-    setFields(new Set(SCRAPE_FIELDS.filter((f) => f.required).map((f) => f.id)));
-  }
-
   function togglePeriod(p: PeriodType) {
     setPeriods((prev) => {
       const next = new Set(prev);
@@ -205,6 +173,30 @@ export function ScraperShell({ initialTickers }: { initialTickers: Ticker[] }) {
       else next.add(p);
       return next;
     });
+  }
+
+  function selectAllMatching() {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const t of matchedAll) next.add(t.ticker);
+      return next;
+    });
+  }
+  function clearSelection() {
+    setSelected(new Set());
+  }
+  function invertSelection() {
+    setSelected((prev) => {
+      const next = new Set<string>();
+      for (const t of matchedAll) if (!prev.has(t.ticker)) next.add(t.ticker);
+      return next;
+    });
+  }
+  function selectAllFields() {
+    setFields(new Set(SCRAPE_FIELDS.map((f) => f.id)));
+  }
+  function clearFields() {
+    setFields(new Set(SCRAPE_FIELDS.filter((f) => f.required).map((f) => f.id)));
   }
 
   async function startScrape() {
@@ -225,7 +217,7 @@ export function ScraperShell({ initialTickers }: { initialTickers: Ticker[] }) {
           format,
         }),
       });
-      if (!r.ok) throw new Error((await r.json()).error || "Failed");
+      if (!r.ok) throw new Error((await r.json()).error || "Gagal memulai");
       const { jobId } = (await r.json()) as { jobId: string };
       const s = await fetch(`/api/scrape/${jobId}/status`).then((x) => x.json());
       setActiveJob(s);
@@ -258,255 +250,266 @@ export function ScraperShell({ initialTickers }: { initialTickers: Ticker[] }) {
         refreshJob={refreshJob}
       />
 
-      <main className="mx-auto max-w-7xl px-4 py-6">
-        <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
-          {/* ── Config column ────────────────────────────────── */}
-          <div className="space-y-4">
-            <Panel title="01" subtitle="Pilih Ticker" right={`${selected.size} dipilih`}>
+      <main className="mx-auto max-w-7xl px-6 py-10">
+        <div className="mb-10">
+          <h1 className="text-3xl font-semibold tracking-tight text-zinc-50">
+            Scrapebit
+          </h1>
+          <p className="mt-2 max-w-2xl text-sm text-zinc-400">
+            Tools selektif untuk pengambilan data keuangan emiten IDX dari
+            Stockbit. Pilih ticker, periode pelaporan, rentang tahun, dan
+            format ekspor sesuai kebutuhan analisis.
+          </p>
+        </div>
+
+        <div className="grid gap-6 lg:grid-cols-[1fr_400px]">
+          {/* Config column */}
+          <div className="space-y-6">
+            <Section
+              step="01"
+              title="Pilih Emiten"
+              subtitle="Cari berdasarkan ticker, nama perusahaan, atau sektor"
+              meta={`${selected.size} dipilih`}
+            >
               <input
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Cari ticker / nama / sektor…"
-                className="mb-2 w-full rounded border border-zinc-800 bg-zinc-950 px-3 py-1.5 font-mono text-xs uppercase tracking-wider outline-none placeholder:text-zinc-600 focus:border-emerald-600"
+                placeholder="Contoh: BBCA, Bank Central Asia, atau Financials"
+                className="mb-3 w-full rounded-md border border-zinc-800 bg-zinc-950 px-3.5 py-2.5 text-sm outline-none transition placeholder:text-zinc-600 focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600/30"
               />
 
-              {/* Sector quick chips */}
-              <div className="mb-2 flex flex-wrap gap-1">
-                <button
-                  onClick={() => setSearch("")}
-                  className={`rounded border px-1.5 py-0.5 text-[10px] ${
-                    !search
-                      ? "border-emerald-700 bg-emerald-950 text-emerald-300"
-                      : "border-zinc-800 bg-zinc-900 text-zinc-400 hover:border-zinc-700"
-                  }`}
-                >
-                  all
-                </button>
+              {/* Sector chips */}
+              <div className="mb-3 flex flex-wrap gap-1.5">
+                <ChipButton active={!search} onClick={() => setSearch("")}>
+                  Semua
+                </ChipButton>
                 {topSectors.map(([s, n]) => (
-                  <button
+                  <ChipButton
                     key={s}
+                    active={search === s}
                     onClick={() => setSearch(s)}
-                    className={`rounded border px-1.5 py-0.5 text-[10px] ${
-                      search === s
-                        ? "border-emerald-700 bg-emerald-950 text-emerald-300"
-                        : "border-zinc-800 bg-zinc-900 text-zinc-400 hover:border-zinc-700"
-                    }`}
-                    title={`${n} ticker`}
+                    badge={n}
                   >
-                    {s} <span className="text-zinc-600">{n}</span>
-                  </button>
+                    {s}
+                  </ChipButton>
                 ))}
               </div>
 
               {/* Bulk action bar */}
-              <div className="mb-2 flex items-center gap-2 rounded border border-zinc-800 bg-zinc-900/50 px-2 py-1">
-                <span className="font-mono text-[10px] text-zinc-500">
-                  match: {matchedAll.length}
+              <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-zinc-800 bg-zinc-900/40 px-3 py-2">
+                <span className="text-xs text-zinc-400">
+                  {matchedAll.length.toLocaleString("id-ID")} hasil
                 </span>
-                <button
-                  onClick={selectAllMatching}
-                  disabled={matchedAll.length === 0}
-                  className="rounded border border-zinc-800 bg-zinc-900 px-1.5 py-0.5 text-[10px] hover:border-emerald-700 hover:text-emerald-300 disabled:opacity-50"
-                >
-                  ✓ select all matching
-                </button>
-                <button
-                  onClick={invertSelection}
-                  disabled={matchedAll.length === 0}
-                  className="rounded border border-zinc-800 bg-zinc-900 px-1.5 py-0.5 text-[10px] hover:border-amber-700 hover:text-amber-300 disabled:opacity-50"
-                  title="Invert selection di matching"
-                >
-                  ⇄ invert
-                </button>
-                <button
-                  onClick={clearSelection}
-                  disabled={selected.size === 0}
-                  className="ml-auto rounded border border-zinc-800 bg-zinc-900 px-1.5 py-0.5 text-[10px] hover:border-rose-700 hover:text-rose-300 disabled:opacity-50"
-                >
-                  ✕ clear ({selected.size})
-                </button>
+                <div className="ml-auto flex flex-wrap gap-1.5">
+                  <ActionButton
+                    onClick={selectAllMatching}
+                    disabled={matchedAll.length === 0}
+                    variant="success"
+                  >
+                    Pilih Semua
+                  </ActionButton>
+                  <ActionButton
+                    onClick={invertSelection}
+                    disabled={matchedAll.length === 0}
+                    variant="warning"
+                  >
+                    Balik
+                  </ActionButton>
+                  <ActionButton
+                    onClick={clearSelection}
+                    disabled={selected.size === 0}
+                    variant="danger"
+                  >
+                    Hapus ({selected.size})
+                  </ActionButton>
+                </div>
               </div>
 
-              <div className="max-h-72 overflow-y-auto rounded border border-zinc-800 bg-zinc-950/50">
+              {/* Ticker list */}
+              <div className="max-h-80 overflow-y-auto rounded-md border border-zinc-800 bg-zinc-950/40">
                 {filtered.length === 0 ? (
-                  <div className="p-3 text-xs text-zinc-500">Tidak ada match.</div>
+                  <div className="p-4 text-sm text-zinc-500">
+                    Tidak ada ticker yang cocok dengan pencarian.
+                  </div>
                 ) : (
                   filtered.map((t) => (
                     <label
                       key={t.ticker}
-                      className="flex cursor-pointer items-center gap-3 border-b border-zinc-900 px-3 py-1.5 text-xs last:border-b-0 hover:bg-zinc-900"
+                      className="flex cursor-pointer items-center gap-3 border-b border-zinc-900 px-3 py-2 text-sm last:border-b-0 hover:bg-zinc-900/60"
                     >
                       <input
                         type="checkbox"
                         checked={selected.has(t.ticker)}
                         onChange={() => toggleTicker(t.ticker)}
-                        className="accent-emerald-500"
+                        className="h-4 w-4 accent-emerald-500"
                       />
-                      <span className="w-16 font-mono font-bold text-emerald-400">
+                      <span className="w-20 font-mono text-sm font-semibold text-emerald-400">
                         {t.ticker}
                       </span>
-                      <span className="flex-1 truncate text-zinc-400">
+                      <span className="flex-1 truncate text-zinc-300">
                         {t.name}
                       </span>
                     </label>
                   ))
                 )}
               </div>
+
               {selected.size > 0 && (
-                <div className="mt-2 flex flex-wrap gap-1">
-                  {sortedSelected.map((t) => (
-                    <button
-                      key={t}
-                      onClick={() => toggleTicker(t)}
-                      className="rounded border border-emerald-900 bg-emerald-950 px-1.5 py-0.5 font-mono text-[10px] text-emerald-300 hover:border-rose-700 hover:bg-rose-950 hover:text-rose-300"
-                      title="Klik buat hapus"
-                    >
-                      {t} ×
-                    </button>
-                  ))}
+                <div className="mt-3">
+                  <div className="mb-1.5 text-xs text-zinc-500">Terpilih:</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {sortedSelected.map((t) => (
+                      <button
+                        key={t}
+                        onClick={() => toggleTicker(t)}
+                        className="rounded border border-emerald-900/50 bg-emerald-950/40 px-2 py-0.5 font-mono text-xs text-emerald-300 transition hover:border-rose-700 hover:bg-rose-950/50 hover:text-rose-300"
+                        title="Klik untuk menghapus"
+                      >
+                        {t}
+                        <span className="ml-1 opacity-60">×</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
-            </Panel>
+            </Section>
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <Panel title="02" subtitle="Periode" right={`${periods.size} dipilih`}>
-                <div className="flex flex-col gap-1.5">
+            <div className="grid gap-6 md:grid-cols-2">
+              <Section
+                step="02"
+                title="Periode Pelaporan"
+                subtitle="Pilih jenis laporan yang akan diambil"
+                meta={`${periods.size} dipilih`}
+              >
+                <div className="flex flex-col gap-2">
                   {PERIOD_TYPES.map((p) => (
-                    <label
+                    <OptionCard
                       key={p.id}
-                      className="flex cursor-pointer items-center gap-2 rounded border border-zinc-800 bg-zinc-950 px-3 py-1.5 text-xs hover:border-zinc-700"
+                      type="checkbox"
+                      checked={periods.has(p.id)}
+                      onChange={() => togglePeriod(p.id)}
                     >
-                      <input
-                        type="checkbox"
-                        checked={periods.has(p.id)}
-                        onChange={() => togglePeriod(p.id)}
-                        className="accent-emerald-500"
-                      />
                       {p.label}
-                    </label>
+                    </OptionCard>
                   ))}
                 </div>
                 {periods.size === 2 && (
-                  <p className="mt-1.5 font-mono text-[10px] text-zinc-500">
-                    // 2 spider chain: annual → quarterly (sequential, ~2x waktu)
+                  <p className="mt-2 text-xs text-zinc-500">
+                    Kedua periode akan dijalankan secara berurutan (annual lalu
+                    quarterly).
                   </p>
                 )}
-              </Panel>
+              </Section>
 
-              <Panel
-                title="03"
-                subtitle="Range Tahun"
-                right={`${yearFrom}–${yearTo} (${yearTo - yearFrom + 1}thn)`}
+              <Section
+                step="03"
+                title="Rentang Tahun"
+                subtitle="Filter periode yang masuk ke output"
+                meta={`${yearTo - yearFrom + 1} tahun`}
               >
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    min={2010}
-                    max={CURRENT_YEAR}
-                    value={yearFrom}
-                    onChange={(e) => setYearFrom(Number(e.target.value))}
-                    className="w-full rounded border border-zinc-800 bg-zinc-950 px-2 py-1.5 font-mono text-xs outline-none focus:border-emerald-600"
-                  />
-                  <span className="text-zinc-600">→</span>
-                  <input
-                    type="number"
-                    min={2010}
-                    max={CURRENT_YEAR}
-                    value={yearTo}
-                    onChange={(e) => setYearTo(Number(e.target.value))}
-                    className="w-full rounded border border-zinc-800 bg-zinc-950 px-2 py-1.5 font-mono text-xs outline-none focus:border-emerald-600"
-                  />
+                <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-3">
+                  <div>
+                    <label className="mb-1 block text-xs text-zinc-500">
+                      Dari tahun
+                    </label>
+                    <input
+                      type="number"
+                      min={2010}
+                      max={CURRENT_YEAR}
+                      value={yearFrom}
+                      onChange={(e) => setYearFrom(Number(e.target.value))}
+                      className="w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 font-mono text-sm outline-none focus:border-emerald-600"
+                    />
+                  </div>
+                  <div className="pb-2.5 text-zinc-600">→</div>
+                  <div>
+                    <label className="mb-1 block text-xs text-zinc-500">
+                      Sampai tahun
+                    </label>
+                    <input
+                      type="number"
+                      min={2010}
+                      max={CURRENT_YEAR}
+                      value={yearTo}
+                      onChange={(e) => setYearTo(Number(e.target.value))}
+                      className="w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 font-mono text-sm outline-none focus:border-emerald-600"
+                    />
+                  </div>
                 </div>
-              </Panel>
+              </Section>
             </div>
 
-            <Panel
-              title="04"
-              subtitle="Data yang Di-scrape"
-              right={`${fields.size}/${SCRAPE_FIELDS.length}`}
+            <Section
+              step="04"
+              title="Komponen Laporan"
+              subtitle="Pilih bagian laporan keuangan dan data tambahan"
+              meta={`${fields.size}/${SCRAPE_FIELDS.length}`}
             >
-              <div className="mb-2 flex items-center gap-2 rounded border border-zinc-800 bg-zinc-900/50 px-2 py-1">
-                <button
-                  onClick={selectAllFields}
-                  className="rounded border border-zinc-800 bg-zinc-900 px-1.5 py-0.5 text-[10px] hover:border-emerald-700 hover:text-emerald-300"
-                >
-                  ✓ select all
-                </button>
-                <button
-                  onClick={clearFields}
-                  className="rounded border border-zinc-800 bg-zinc-900 px-1.5 py-0.5 text-[10px] hover:border-rose-700 hover:text-rose-300"
-                >
-                  ✕ clear optional
-                </button>
+              <div className="mb-3 flex flex-wrap gap-1.5">
+                <ActionButton onClick={selectAllFields} variant="success">
+                  Pilih Semua
+                </ActionButton>
+                <ActionButton onClick={clearFields} variant="danger">
+                  Reset
+                </ActionButton>
               </div>
-              <div className="grid grid-cols-2 gap-1.5">
+              <div className="grid gap-2 sm:grid-cols-2">
                 {SCRAPE_FIELDS.map((f) => (
-                  <label
+                  <OptionCard
                     key={f.id}
-                    className={`flex cursor-pointer items-center gap-2 rounded border border-zinc-800 bg-zinc-950 px-3 py-1.5 text-xs hover:border-zinc-700 ${
-                      f.required ? "opacity-60" : ""
-                    }`}
+                    type="checkbox"
+                    checked={fields.has(f.id) || f.required}
+                    disabled={f.required}
+                    onChange={() => toggleField(f.id)}
+                    badge={f.required ? "Wajib" : undefined}
                   >
-                    <input
-                      type="checkbox"
-                      checked={fields.has(f.id) || f.required}
-                      disabled={f.required}
-                      onChange={() => toggleField(f.id)}
-                      className="accent-emerald-500"
-                    />
                     {f.label}
-                    {f.required && (
-                      <span className="ml-auto text-[9px] text-zinc-600">
-                        wajib
-                      </span>
-                    )}
-                  </label>
+                  </OptionCard>
                 ))}
               </div>
-            </Panel>
+            </Section>
 
-            <Panel title="05" subtitle="Format Output">
-              <div className="flex gap-1.5">
+            <Section
+              step="05"
+              title="Format Ekspor"
+              subtitle="Format file output yang akan dihasilkan"
+            >
+              <div className="grid gap-2 sm:grid-cols-3">
                 {OUTPUT_FORMATS.map((f) => (
-                  <label
+                  <OptionCard
                     key={f.id}
-                    className="flex flex-1 cursor-pointer items-center gap-2 rounded border border-zinc-800 bg-zinc-950 px-3 py-1.5 text-xs hover:border-zinc-700"
+                    type="radio"
+                    name="format"
+                    checked={format === f.id}
+                    onChange={() => setFormat(f.id)}
                   >
-                    <input
-                      type="radio"
-                      name="format"
-                      checked={format === f.id}
-                      onChange={() => setFormat(f.id)}
-                      className="accent-emerald-500"
-                    />
                     {f.label}
-                  </label>
+                  </OptionCard>
                 ))}
               </div>
-            </Panel>
+            </Section>
 
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-4 pt-2">
               <button
                 onClick={startScrape}
-                disabled={posting || selected.size === 0 || auth.valid === false}
-                className="rounded border border-emerald-700 bg-emerald-600 px-5 py-2 text-sm font-semibold text-white shadow-[0_0_20px_-5px_rgba(16,185,129,0.5)] hover:bg-emerald-500 disabled:cursor-not-allowed disabled:border-zinc-800 disabled:bg-zinc-900 disabled:text-zinc-600 disabled:shadow-none"
+                disabled={posting || selected.size === 0}
+                className="rounded-md bg-emerald-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500"
               >
-                {posting
-                  ? "Starting…"
-                  : `> Start Scrape (${selected.size} ticker)`}
+                {posting ? "Memulai…" : "Mulai Scrape"}
               </button>
-              {auth.valid === false && (
-                <span className="text-xs text-amber-400">
-                  Login dulu di kanan atas
-                </span>
+              <div className="text-sm text-zinc-400">
+                {selected.size} emiten · {periods.size} periode ·{" "}
+                {yearTo - yearFrom + 1} tahun
+              </div>
+              {error && (
+                <span className="text-sm text-rose-400">{error}</span>
               )}
-              {error && <span className="text-xs text-rose-400">{error}</span>}
             </div>
           </div>
 
-          {/* ── Job panel ────────────────────────────────────── */}
-          <aside className="lg:sticky lg:top-4 lg:self-start">
+          {/* Job panel */}
+          <aside className="lg:sticky lg:top-[5rem] lg:self-start">
             {activeJob ? <JobPanel job={activeJob} /> : <EmptyJobPanel />}
           </aside>
         </div>
@@ -543,32 +546,38 @@ function TopBar({
   refreshJob: JobStatus | null;
 }) {
   const refreshing =
-    refreshJob?.state === "running" || refreshJob?.state === "queued";
+    refreshJob?.state === "queued" || refreshJob?.state === "running";
+
   return (
-    <header className="sticky top-0 z-10 border-b border-zinc-800 bg-zinc-950/80 backdrop-blur">
-      <div className="mx-auto flex max-w-7xl items-center gap-4 px-4 py-2.5">
-        <div className="flex items-center gap-2">
-          <span className="text-base font-bold tracking-tight">
-            <span className="text-emerald-400">$</span> Scrapebit
-          </span>
-          <span className="hidden text-xs text-zinc-500 md:inline">
-            stockbit scraper UI · local-only
-          </span>
+    <header className="sticky top-0 z-10 border-b border-zinc-800/80 bg-zinc-950/85 backdrop-blur-md">
+      <div className="mx-auto flex max-w-7xl items-center gap-6 px-6 py-3.5">
+        <div className="flex items-center gap-3">
+          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/30">
+            <span className="text-base font-bold">S</span>
+          </div>
+          <div className="leading-tight">
+            <div className="text-sm font-semibold tracking-tight">
+              Scrapebit
+            </div>
+            <div className="text-xs text-zinc-500">Stockbit Data Toolkit</div>
+          </div>
         </div>
 
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-3">
           <TickerStatus
             count={tickerCount}
             lastModified={tickersLastModified}
             refreshing={refreshing}
             onRefresh={onRefreshTickers}
           />
+          <div className="h-6 w-px bg-zinc-800" />
           <AuthBadge auth={auth} onLogin={onLogin} />
         </div>
       </div>
       {refreshJob && refreshJob.state === "running" && (
-        <div className="border-t border-zinc-800 bg-amber-950/30 px-4 py-1 text-xs text-amber-200">
-          [REFRESH] Crawling symbol list… ini ~3-5 menit. List ticker auto-reload pas selesai.
+        <div className="border-t border-amber-900/40 bg-amber-950/30 px-6 py-1.5 text-xs text-amber-200">
+          Sedang memperbarui daftar emiten (sekitar 3–5 menit). Daftar akan
+          dimuat ulang otomatis setelah selesai.
         </div>
       )}
     </header>
@@ -589,20 +598,35 @@ function TickerStatus({
   const age = lastModified ? daysAgo(lastModified) : null;
   const stale = age !== null && age > 7;
   return (
-    <div className="flex items-center gap-1.5">
-      <div className="hidden text-right text-[10px] leading-tight md:block">
-        <div className="font-mono">{count} ticker</div>
+    <div className="flex items-center gap-2">
+      <div className="hidden text-right text-xs leading-tight md:block">
+        <div className="font-medium text-zinc-300">
+          {count.toLocaleString("id-ID")} emiten
+        </div>
         <div className={stale ? "text-amber-400" : "text-zinc-500"}>
-          {age === null ? "?" : age === 0 ? "today" : `${age}d ago`}
+          Diperbarui {age === null ? "—" : age === 0 ? "hari ini" : `${age} hari lalu`}
         </div>
       </div>
       <button
         onClick={onRefresh}
         disabled={refreshing}
-        className="rounded border border-zinc-800 bg-zinc-900 px-2 py-1 text-[10px] hover:border-zinc-700 disabled:opacity-50"
-        title={lastModified ? `Last refresh ${lastModified}` : "Refresh list"}
+        className="inline-flex items-center gap-1.5 rounded-md border border-zinc-800 bg-zinc-900/70 px-2.5 py-1.5 text-xs font-medium text-zinc-300 transition hover:border-zinc-700 hover:bg-zinc-800 disabled:opacity-50"
+        title={lastModified ? `Last refresh: ${lastModified}` : "Refresh list"}
       >
-        {refreshing ? "⟳ refreshing…" : "⟳ refresh tickers"}
+        <svg
+          className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+          />
+        </svg>
+        {refreshing ? "Memperbarui…" : "Perbarui"}
       </button>
     </div>
   );
@@ -617,70 +641,200 @@ function AuthBadge({
 }) {
   if (auth.valid === null) {
     return (
-      <span className="rounded border border-zinc-800 bg-zinc-900 px-2 py-1 text-[10px] text-zinc-500">
-        ● checking…
+      <span className="inline-flex items-center gap-1.5 rounded-md border border-zinc-800 bg-zinc-900/70 px-3 py-1.5 text-xs text-zinc-500">
+        <span className="h-1.5 w-1.5 rounded-full bg-zinc-500" />
+        Memeriksa…
       </span>
     );
   }
   if (auth.valid) {
     const hours = Math.floor(auth.remainingSec / 3600);
+    const mins = Math.floor((auth.remainingSec % 3600) / 60);
     return (
       <button
         onClick={onLogin}
-        className="rounded border border-emerald-900 bg-emerald-950 px-2 py-1 text-[10px] text-emerald-300 hover:border-emerald-700"
+        className="inline-flex items-center gap-1.5 rounded-md border border-emerald-900/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-300 transition hover:border-emerald-700"
         title={`Token expires at ${auth.expiresAtIso}`}
       >
-        ● token aktif · {hours}h sisa
+        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+        Token aktif · {hours > 0 ? `${hours}j ${mins}m` : `${mins}m`}
       </button>
     );
   }
   return (
     <button
       onClick={onLogin}
-      className="rounded border border-amber-900 bg-amber-950 px-2 py-1 text-[10px] text-amber-300 hover:border-amber-700"
+      className="inline-flex items-center gap-1.5 rounded-md border border-amber-900/50 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-300 transition hover:border-amber-700"
     >
-      ● {auth.reason} · login
+      <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+      Login Stockbit
     </button>
   );
 }
 
-// ─── Panels ────────────────────────────────────────────────────────────────
+// ─── Reusable Components ───────────────────────────────────────────────────
 
-function Panel({
+function Section({
+  step,
   title,
   subtitle,
-  right,
+  meta,
   children,
 }: {
+  step: string;
   title: string;
-  subtitle: string;
-  right?: string;
+  subtitle?: string;
+  meta?: string;
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-md border border-zinc-800 bg-zinc-900/40">
-      <header className="flex items-baseline justify-between border-b border-zinc-800 px-3 py-1.5">
-        <h2 className="text-xs">
-          <span className="font-mono text-zinc-500">{title}</span>{" "}
-          <span className="font-semibold uppercase tracking-wider">
-            {subtitle}
+    <section className="rounded-xl border border-zinc-800 bg-zinc-900/30 shadow-sm">
+      <header className="flex items-start justify-between gap-4 border-b border-zinc-800 px-5 py-3.5">
+        <div className="flex items-start gap-3">
+          <span className="rounded bg-zinc-800/80 px-2 py-0.5 font-mono text-xs text-zinc-400">
+            {step}
           </span>
-        </h2>
-        {right && (
-          <span className="font-mono text-[10px] text-zinc-500">{right}</span>
+          <div>
+            <h2 className="text-sm font-semibold text-zinc-100">{title}</h2>
+            {subtitle && (
+              <p className="mt-0.5 text-xs text-zinc-500">{subtitle}</p>
+            )}
+          </div>
+        </div>
+        {meta && (
+          <span className="rounded-md bg-zinc-800/60 px-2.5 py-1 text-xs font-medium text-zinc-300">
+            {meta}
+          </span>
         )}
       </header>
-      <div className="p-3">{children}</div>
+      <div className="p-5">{children}</div>
     </section>
   );
 }
 
+function ChipButton({
+  active,
+  onClick,
+  badge,
+  children,
+}: {
+  active?: boolean;
+  onClick: () => void;
+  badge?: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition ${
+        active
+          ? "border-emerald-700 bg-emerald-500/20 text-emerald-200"
+          : "border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:border-zinc-700 hover:bg-zinc-800/70 hover:text-zinc-200"
+      }`}
+    >
+      {children}
+      {badge !== undefined && (
+        <span className="text-[10px] opacity-70">{badge}</span>
+      )}
+    </button>
+  );
+}
+
+function ActionButton({
+  onClick,
+  disabled,
+  variant = "default",
+  children,
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+  variant?: "default" | "success" | "warning" | "danger";
+  children: React.ReactNode;
+}) {
+  const colors = {
+    default: "hover:border-zinc-700 hover:text-zinc-200",
+    success: "hover:border-emerald-700 hover:bg-emerald-500/10 hover:text-emerald-300",
+    warning: "hover:border-amber-700 hover:bg-amber-500/10 hover:text-amber-300",
+    danger: "hover:border-rose-700 hover:bg-rose-500/10 hover:text-rose-300",
+  };
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={`rounded-md border border-zinc-800 bg-zinc-900/70 px-2.5 py-1 text-xs font-medium text-zinc-400 transition disabled:cursor-not-allowed disabled:opacity-50 ${colors[variant]}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function OptionCard({
+  type,
+  name,
+  checked,
+  disabled,
+  onChange,
+  badge,
+  children,
+}: {
+  type: "checkbox" | "radio";
+  name?: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: () => void;
+  badge?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label
+      className={`flex cursor-pointer items-center gap-2.5 rounded-md border px-3 py-2.5 text-sm transition ${
+        checked
+          ? "border-emerald-700 bg-emerald-500/5 text-zinc-100"
+          : "border-zinc-800 bg-zinc-950 text-zinc-300 hover:border-zinc-700 hover:bg-zinc-900/40"
+      } ${disabled ? "opacity-60" : ""}`}
+    >
+      <input
+        type={type}
+        name={name}
+        checked={checked}
+        disabled={disabled}
+        onChange={onChange}
+        className="h-4 w-4 accent-emerald-500"
+      />
+      <span className="flex-1">{children}</span>
+      {badge && (
+        <span className="rounded bg-zinc-800/80 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+          {badge}
+        </span>
+      )}
+    </label>
+  );
+}
+
+// ─── Job Panel ─────────────────────────────────────────────────────────────
+
 function EmptyJobPanel() {
   return (
-    <div className="rounded-md border border-dashed border-zinc-800 bg-zinc-900/20 p-6 text-center font-mono text-xs text-zinc-600">
-      // belum ada scrape jalan
-      <br />
-      pilih ticker + config, klik Start.
+    <div className="rounded-xl border border-dashed border-zinc-800 bg-zinc-900/20 p-8 text-center">
+      <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-zinc-800/50">
+        <svg
+          className="h-5 w-5 text-zinc-500"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+          />
+        </svg>
+      </div>
+      <p className="text-sm font-medium text-zinc-300">Belum ada scrape</p>
+      <p className="mt-1 text-xs text-zinc-500">
+        Pilih emiten dan konfigurasi, kemudian klik “Mulai Scrape”.
+      </p>
     </div>
   );
 }
@@ -692,27 +846,37 @@ function JobPanel({ job }: { job: JobStatus }) {
   const isActive = job.state === "running";
 
   return (
-    <div className="rounded-md border border-zinc-800 bg-zinc-900/40">
-      <header className="flex items-center justify-between border-b border-zinc-800 px-3 py-1.5">
-        <span className="font-mono text-[10px] text-zinc-500">{job.jobId}</span>
+    <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 shadow-sm">
+      <header className="flex items-center justify-between border-b border-zinc-800 px-5 py-3">
+        <div>
+          <div className="text-sm font-semibold text-zinc-100">Job Aktif</div>
+          <div className="font-mono text-[11px] text-zinc-500">{job.jobId}</div>
+        </div>
         <StateBadge state={job.state} />
       </header>
 
-      <div className="p-3">
+      <div className="px-5 py-4">
         {job.currentPhase && isActive && (
-          <div className="mb-1.5 font-mono text-[10px] text-zinc-500">
-            phase: <span className="text-sky-300">{job.currentPhase}</span>
+          <div className="mb-3 flex items-center gap-2 text-xs">
+            <span className="text-zinc-500">Fase:</span>
+            <span className="rounded-md bg-sky-500/15 px-2 py-0.5 font-medium text-sky-300">
+              {job.currentPhase === "annual" ? "Tahunan" : "Kuartalan"}
+            </span>
           </div>
         )}
-        <div className="mb-1.5 flex justify-between font-mono text-xs">
-          <span>
-            {job.progress.current} / {job.progress.total} ticker
+
+        <div className="mb-2 flex justify-between text-sm">
+          <span className="font-medium text-zinc-200">
+            {job.progress.current} / {job.progress.total}
+            <span className="ml-1 text-zinc-500">ticker</span>
           </span>
-          <span>{pct}%</span>
+          <span className="font-mono text-sm font-semibold text-zinc-300">
+            {pct}%
+          </span>
         </div>
-        <div className="mb-3 h-1.5 overflow-hidden rounded-full bg-zinc-800">
+        <div className="mb-4 h-2 overflow-hidden rounded-full bg-zinc-800">
           <div
-            className={`h-full transition-all ${
+            className={`h-full rounded-full transition-all ${
               job.state === "failed"
                 ? "bg-rose-500"
                 : job.state === "done"
@@ -724,16 +888,34 @@ function JobPanel({ job }: { job: JobStatus }) {
         </div>
 
         {job.state === "done" && job.outputs.length > 0 && (
-          <div className="mb-3 flex flex-col gap-1.5">
+          <div className="mb-4 space-y-2">
+            <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+              Unduh
+            </div>
             {job.outputs.map((o) => (
               <a
                 key={o.filename}
                 href={`/api/scrape/${job.jobId}/download?file=${encodeURIComponent(o.filename)}`}
-                className="flex items-center justify-between rounded border border-emerald-700 bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500"
+                className="flex items-center justify-between gap-3 rounded-md border border-emerald-700/50 bg-emerald-500/10 px-3.5 py-2.5 text-sm font-medium text-emerald-200 transition hover:bg-emerald-500/20"
                 download
               >
-                <span>↓ {o.period.toUpperCase()}</span>
-                <span className="font-mono text-[10px] opacity-80">
+                <span className="inline-flex items-center gap-2">
+                  <svg
+                    className="h-4 w-4"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                    />
+                  </svg>
+                  {o.period === "annual" ? "Data Tahunan" : "Data Kuartalan"}
+                </span>
+                <span className="font-mono text-xs text-emerald-300/80">
                   {formatBytes(o.sizeBytes)}
                 </span>
               </a>
@@ -742,17 +924,18 @@ function JobPanel({ job }: { job: JobStatus }) {
         )}
 
         {job.error && (
-          <div className="mb-3 rounded border border-rose-900 bg-rose-950 p-2 text-xs text-rose-300">
+          <div className="mb-4 rounded-md border border-rose-900/50 bg-rose-500/10 p-3 text-xs text-rose-300">
+            <div className="mb-1 font-semibold">Error</div>
             {job.error}
           </div>
         )}
 
         <details open={isActive}>
-          <summary className="cursor-pointer text-[10px] text-zinc-500">
-            // log (tail {job.logTail.length})
+          <summary className="cursor-pointer text-xs font-medium uppercase tracking-wide text-zinc-500 hover:text-zinc-300">
+            Log Eksekusi
           </summary>
-          <pre className="mt-2 max-h-72 overflow-y-auto rounded bg-black p-2 font-mono text-[10px] leading-snug text-emerald-300">
-            {job.logTail.join("\n") || "(empty)"}
+          <pre className="mt-3 max-h-80 overflow-y-auto rounded-md border border-zinc-800 bg-zinc-950 p-3 font-mono text-[11px] leading-relaxed text-emerald-300/90">
+            {job.logTail.join("\n") || "(belum ada output)"}
           </pre>
         </details>
       </div>
@@ -761,17 +944,32 @@ function JobPanel({ job }: { job: JobStatus }) {
 }
 
 function StateBadge({ state }: { state: JobStatus["state"] }) {
-  const colors = {
-    queued: "border-zinc-800 bg-zinc-900 text-zinc-400",
-    running: "border-sky-900 bg-sky-950 text-sky-300 animate-pulse",
-    done: "border-emerald-900 bg-emerald-950 text-emerald-300",
-    failed: "border-rose-900 bg-rose-950 text-rose-300",
+  const config = {
+    queued: { label: "Antrian", style: "bg-zinc-800 text-zinc-400" },
+    running: {
+      label: "Berjalan",
+      style: "bg-sky-500/15 text-sky-300 ring-1 ring-inset ring-sky-500/30",
+    },
+    done: {
+      label: "Selesai",
+      style:
+        "bg-emerald-500/15 text-emerald-300 ring-1 ring-inset ring-emerald-500/30",
+    },
+    failed: {
+      label: "Gagal",
+      style:
+        "bg-rose-500/15 text-rose-300 ring-1 ring-inset ring-rose-500/30",
+    },
   };
+  const c = config[state];
   return (
     <span
-      className={`rounded border px-1.5 py-0.5 font-mono text-[10px] uppercase ${colors[state]}`}
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${c.style}`}
     >
-      {state}
+      {state === "running" && (
+        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-current" />
+      )}
+      {c.label}
     </span>
   );
 }
@@ -796,7 +994,14 @@ const CHANNEL_LABELS: Record<string, string> = {
   CHANNEL_EMAIL: "Email",
   CHANNEL_WHATSAPP: "WhatsApp",
   CHANNEL_SMS: "SMS",
-  CHANNEL_AUTHENTICATOR: "Authenticator app",
+  CHANNEL_AUTHENTICATOR: "Aplikasi Authenticator",
+};
+
+const PHASE_TITLES: Record<LoginPhase, string> = {
+  credentials: "Masuk ke Stockbit",
+  choose_channel: "Pilih Metode Verifikasi",
+  enter_otp: "Masukkan Kode OTP",
+  next_factor: "Verifikasi Tambahan",
 };
 
 function LoginModal({
@@ -829,7 +1034,7 @@ function LoginModal({
         body: JSON.stringify(body),
       });
       const data = (await r.json()) as Record<string, unknown>;
-      if (!r.ok) throw new Error(String(data.error || "Failed"));
+      if (!r.ok) throw new Error(String(data.error || "Gagal"));
       handleResponse(data);
     } catch (e) {
       setErr(String(e));
@@ -866,24 +1071,15 @@ function LoginModal({
           ...prev,
           phase: "next_factor",
           availableChannels: (data.channelsRemaining as string[]) || [],
-          completedChannels: (data.channelsCompleted as string[]) || prev.completedChannels,
+          completedChannels:
+            (data.channelsCompleted as string[]) || prev.completedChannels,
           currentChannel: null,
         }));
         setOtp("");
         return;
       default:
-        setErr(`Unknown mode: ${mode}`);
+        setErr(`Mode tidak dikenal: ${mode}`);
     }
-  }
-
-  function submitCredentials() {
-    void post({ email, password });
-  }
-  function requestChannel(channel: string) {
-    void post({ requestOtp: channel });
-  }
-  function submitOtp() {
-    void post({ otp });
   }
 
   const previewStr = (() => {
@@ -894,155 +1090,183 @@ function LoginModal({
 
   return (
     <div
-      className="fixed inset-0 z-20 flex items-center justify-center bg-black/70 px-4"
+      className="fixed inset-0 z-20 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-sm rounded-md border border-zinc-800 bg-zinc-950 p-5 shadow-xl"
+        className="w-full max-w-md rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="font-mono text-sm uppercase tracking-wider">
-            $ stockbit.{ctx.phase}
+        <div className="flex items-center justify-between border-b border-zinc-800 px-6 py-4">
+          <h2 className="text-base font-semibold text-zinc-100">
+            {PHASE_TITLES[ctx.phase]}
           </h2>
-          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300">
-            ✕
+          <button
+            onClick={onClose}
+            className="rounded-md p-1 text-zinc-500 transition hover:bg-zinc-800 hover:text-zinc-300"
+            aria-label="Tutup"
+          >
+            <svg
+              className="h-5 w-5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M6 18L18 6M6 6l12 12"
+              />
+            </svg>
           </button>
         </div>
 
-        {/* Phase progress dot */}
+        {/* Progress indicator (skip on credentials) */}
         {ctx.phase !== "credentials" && (
-          <div className="mb-3 flex items-center gap-1.5 text-[10px] text-zinc-500">
-            <span className="text-emerald-400">✓ login</span>
+          <div className="flex items-center gap-2 border-b border-zinc-800 bg-zinc-900/50 px-6 py-2.5 text-xs">
+            <span className="inline-flex items-center gap-1 text-emerald-400">
+              <CheckIcon /> Kredensial
+            </span>
             {ctx.completedChannels.map((c) => (
-              <span key={c} className="text-emerald-400">
-                ✓ {CHANNEL_LABELS[c] ?? c}
+              <span
+                key={c}
+                className="inline-flex items-center gap-1 text-emerald-400"
+              >
+                <CheckIcon />
+                {CHANNEL_LABELS[c] ?? c}
               </span>
             ))}
-            <span className="text-amber-400">● next</span>
+            <span className="inline-flex items-center gap-1 text-amber-400">
+              <DotIcon /> Sekarang
+            </span>
           </div>
         )}
 
-        {ctx.phase === "credentials" && (
-          <div className="space-y-3">
-            <FormRow label="email">
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                autoFocus
-                className="w-full rounded border border-zinc-800 bg-zinc-950 px-3 py-1.5 font-mono text-xs outline-none focus:border-emerald-600"
-                placeholder="bashide@gmail.com"
-              />
-            </FormRow>
-            <FormRow label="password">
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full rounded border border-zinc-800 bg-zinc-950 px-3 py-1.5 font-mono text-xs outline-none focus:border-emerald-600"
-              />
-            </FormRow>
-            <button
-              onClick={submitCredentials}
-              disabled={posting || !email || !password}
-              className="w-full rounded border border-emerald-700 bg-emerald-600 py-2 text-xs font-semibold text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:border-zinc-800 disabled:bg-zinc-900 disabled:text-zinc-600"
-            >
-              {posting ? "logging in…" : "> login"}
-            </button>
-            <p className="text-[10px] text-zinc-500">
-              Credential cuma dipake spawn login_token.py local. Token disimpen
-              di .token.json di scraper folder.
-            </p>
-          </div>
-        )}
-
-        {(ctx.phase === "choose_channel" || ctx.phase === "next_factor") && (
-          <div className="space-y-3">
-            <p className="rounded border border-amber-900 bg-amber-950 p-2 text-xs text-amber-300">
-              {ctx.phase === "next_factor"
-                ? "Stockbit minta verifikasi tambahan. Pilih channel berikutnya:"
-                : "Stockbit detect new device. Pilih channel buat kirim OTP:"}
-            </p>
-            <div className="flex flex-col gap-1.5">
-              {ctx.availableChannels.length === 0 ? (
-                <p className="text-xs text-zinc-500">
-                  Channel list kosong dari Stockbit. Coba manual:
-                </p>
-              ) : null}
-              {(ctx.availableChannels.length
-                ? ctx.availableChannels
-                : ["CHANNEL_EMAIL", "CHANNEL_WHATSAPP", "CHANNEL_SMS"]
-              ).map((c) => (
-                <button
-                  key={c}
-                  onClick={() => requestChannel(c)}
-                  disabled={posting}
-                  className="flex items-center justify-between rounded border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs hover:border-emerald-700 hover:text-emerald-300 disabled:opacity-50"
-                >
-                  <span>{CHANNEL_LABELS[c] ?? c}</span>
-                  <span className="font-mono text-[10px] text-zinc-500">
-                    {c}
-                  </span>
-                </button>
-              ))}
+        <div className="px-6 py-5">
+          {ctx.phase === "credentials" && (
+            <div className="space-y-4">
+              <FormField label="Email atau Username">
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  autoFocus
+                  placeholder="nama@email.com"
+                  className="w-full rounded-md border border-zinc-800 bg-zinc-950 px-3.5 py-2.5 text-sm outline-none placeholder:text-zinc-600 focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600/30"
+                />
+              </FormField>
+              <FormField label="Password">
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full rounded-md border border-zinc-800 bg-zinc-950 px-3.5 py-2.5 text-sm outline-none placeholder:text-zinc-600 focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600/30"
+                />
+              </FormField>
+              <button
+                onClick={() => void post({ email, password })}
+                disabled={posting || !email || !password}
+                className="w-full rounded-md bg-emerald-600 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500"
+              >
+                {posting ? "Memproses…" : "Masuk"}
+              </button>
+              <p className="text-xs text-zinc-500">
+                Kredensial hanya digunakan untuk menjalankan{" "}
+                <code className="rounded bg-zinc-800 px-1 py-0.5 font-mono text-[11px] text-zinc-300">
+                  login_token.py
+                </code>{" "}
+                secara lokal. Token akan disimpan terenkripsi di state directory.
+              </p>
             </div>
-          </div>
-        )}
+          )}
 
-        {ctx.phase === "enter_otp" && (
-          <div className="space-y-3">
-            <p className="rounded border border-amber-900 bg-amber-950 p-2 text-xs text-amber-300">
-              OTP dikirim via{" "}
-              <strong>
-                {CHANNEL_LABELS[ctx.currentChannel ?? ""] ?? ctx.currentChannel}
-              </strong>
-              {previewStr ? ` ke ${previewStr}` : ""}.
-            </p>
-            <FormRow label="otp">
-              <input
-                type="text"
-                value={otp}
-                onChange={(e) => setOtp(e.target.value)}
-                autoFocus
-                inputMode="numeric"
-                maxLength={6}
-                className="w-full rounded border border-zinc-800 bg-zinc-950 px-3 py-1.5 text-center font-mono text-base tracking-[0.5em] outline-none focus:border-emerald-600"
-              />
-            </FormRow>
-            <button
-              onClick={submitOtp}
-              disabled={posting || otp.length !== 6}
-              className="w-full rounded border border-emerald-700 bg-emerald-600 py-2 text-xs font-semibold text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:border-zinc-800 disabled:bg-zinc-900 disabled:text-zinc-600"
-            >
-              {posting ? "verifying…" : "> verify"}
-            </button>
-            <button
-              onClick={() =>
-                setCtx((prev) => ({
-                  ...prev,
-                  phase: "choose_channel",
-                  currentChannel: null,
-                }))
-              }
-              className="w-full text-[10px] text-zinc-500 hover:text-zinc-300"
-            >
-              ← ganti channel
-            </button>
-          </div>
-        )}
+          {(ctx.phase === "choose_channel" ||
+            ctx.phase === "next_factor") && (
+            <div className="space-y-4">
+              <div className="rounded-md border border-amber-900/40 bg-amber-500/10 p-3 text-sm text-amber-200">
+                {ctx.phase === "next_factor"
+                  ? "Stockbit memerlukan verifikasi tambahan. Pilih channel berikutnya."
+                  : "Stockbit mendeteksi perangkat baru. Pilih channel untuk pengiriman kode OTP."}
+              </div>
+              <div className="space-y-2">
+                {(ctx.availableChannels.length
+                  ? ctx.availableChannels
+                  : ["CHANNEL_EMAIL", "CHANNEL_WHATSAPP", "CHANNEL_SMS"]
+                ).map((c) => (
+                  <button
+                    key={c}
+                    onClick={() => void post({ requestOtp: c })}
+                    disabled={posting}
+                    className="flex w-full items-center justify-between rounded-md border border-zinc-800 bg-zinc-950 px-4 py-3 text-left text-sm transition hover:border-emerald-700 hover:bg-emerald-500/5 disabled:opacity-50"
+                  >
+                    <span className="font-medium text-zinc-100">
+                      {CHANNEL_LABELS[c] ?? c}
+                    </span>
+                    <span className="text-zinc-500">→</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
-        {err && (
-          <div className="mt-3 rounded border border-rose-900 bg-rose-950 p-2 text-xs text-rose-300">
-            {err}
-          </div>
-        )}
+          {ctx.phase === "enter_otp" && (
+            <div className="space-y-4">
+              <div className="rounded-md border border-sky-900/40 bg-sky-500/10 p-3 text-sm text-sky-200">
+                Kode OTP telah dikirim melalui{" "}
+                <strong>
+                  {CHANNEL_LABELS[ctx.currentChannel ?? ""] ??
+                    ctx.currentChannel}
+                </strong>
+                {previewStr ? ` ke ${previewStr}` : ""}.
+              </div>
+              <FormField label="Kode OTP">
+                <input
+                  type="text"
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
+                  autoFocus
+                  inputMode="numeric"
+                  maxLength={6}
+                  placeholder="••••••"
+                  className="w-full rounded-md border border-zinc-800 bg-zinc-950 px-3.5 py-3 text-center font-mono text-2xl tracking-[0.5em] outline-none placeholder:text-zinc-700 focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600/30"
+                />
+              </FormField>
+              <button
+                onClick={() => void post({ otp })}
+                disabled={posting || otp.length !== 6}
+                className="w-full rounded-md bg-emerald-600 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500"
+              >
+                {posting ? "Memverifikasi…" : "Verifikasi"}
+              </button>
+              <button
+                onClick={() =>
+                  setCtx((prev) => ({
+                    ...prev,
+                    phase: "choose_channel",
+                    currentChannel: null,
+                  }))
+                }
+                className="w-full text-xs text-zinc-500 transition hover:text-zinc-300"
+              >
+                ← Ganti channel
+              </button>
+            </div>
+          )}
+
+          {err && (
+            <div className="mt-4 rounded-md border border-rose-900/50 bg-rose-500/10 p-3 text-xs text-rose-300">
+              {err}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
-function FormRow({
+function FormField({
   label,
   children,
 }: {
@@ -1050,12 +1274,36 @@ function FormRow({
   children: React.ReactNode;
 }) {
   return (
-    <label className="block">
-      <div className="mb-1 font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+    <div>
+      <label className="mb-1.5 block text-xs font-medium text-zinc-400">
         {label}
-      </div>
+      </label>
       {children}
-    </label>
+    </div>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg
+      className="h-3 w-3"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="3"
+      viewBox="0 0 24 24"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M5 13l4 4L19 7"
+      />
+    </svg>
+  );
+}
+
+function DotIcon() {
+  return (
+    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-current" />
   );
 }
 
@@ -1066,7 +1314,7 @@ function daysAgo(iso: string): number {
 }
 
 function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes}B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
