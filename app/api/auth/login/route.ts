@@ -10,20 +10,26 @@ export const dynamic = "force-dynamic";
 
 /**
  * POST /api/auth/login
- * Body: { email?, password?, otp? }
+ * Body variants:
+ *  1. { email, password }              → initial login (mungkin direct or trigger verification)
+ *  2. { requestOtp: "CHANNEL_EMAIL" }  → minta OTP dikirim via channel
+ *  3. { otp: "123456" }                → verify OTP
  *
- * 2 modes:
- *  1. Initial login: { email, password } — kirim ke login_token.py via env override.
- *     Result: success → token saved; new_device → returns awaiting_otp.
- *  2. Verify OTP: { otp } — login_token.py --otp <kode>.
+ * Returns:
+ *  - { mode: "direct", ok, expiresAt }              ← login langsung, ga butuh OTP
+ *  - { mode: "awaiting_channel", channels: [...] }  ← need pilih channel
+ *  - { mode: "otp_sent", channel, channelsRemaining } ← OTP terkirim
+ *  - { mode: "otp_verified", ok, expiresAt }        ← OTP valid, login complete
+ *  - { mode: "awaiting_next_factor", channelsCompleted, channelsRemaining } ← multi-step
+ *  - { error, ... }
  *
- * Krn login_token.py baca dari .env, mode 1 kita override env STOCKBIT_USERNAME/PASSWORD
- * dengan spawn env. Mode 2 langsung pass --otp arg.
+ * All structured JSON output diparse dari login_token.py stdout.
  */
 export async function POST(req: Request) {
   const body = (await req.json().catch(() => ({}))) as {
     email?: string;
     password?: string;
+    requestOtp?: string; // channel name
     otp?: string;
   };
 
@@ -35,55 +41,58 @@ export async function POST(req: Request) {
     );
   }
 
-  // Mode 2: verify OTP
+  let args: string[];
+  let env = process.env;
+
   if (body.otp) {
-    const r = spawnSync(PYTHON_BIN, [script, "--otp", body.otp], {
-      cwd: SCRAPER_DIR,
-      env: process.env,
-      encoding: "utf-8",
-      timeout: 30000,
-    });
-    const stdout = r.stdout || "";
-    const stderr = r.stderr || "";
-    if (r.status === 0 && /\[OK\] OTP verified/.test(stdout)) {
-      return NextResponse.json({ ok: true, mode: "otp_verified" });
-    }
+    args = [script, "--otp", body.otp];
+  } else if (body.requestOtp) {
+    args = [script, "--request-otp", body.requestOtp];
+  } else if (body.email && body.password) {
+    args = [script];
+    env = {
+      ...process.env,
+      STOCKBIT_USERNAME: body.email,
+      STOCKBIT_PASSWORD: body.password,
+    };
+  } else {
     return NextResponse.json(
-      { error: "OTP verify gagal", stdout, stderr },
+      { error: "Pass {email,password} or {requestOtp:channel} or {otp:code}" },
       { status: 400 },
     );
   }
 
-  // Mode 1: initial login
-  if (!body.email || !body.password) {
-    return NextResponse.json(
-      { error: "email + password required" },
-      { status: 400 },
-    );
-  }
-
-  const env = {
-    ...process.env,
-    STOCKBIT_USERNAME: body.email,
-    STOCKBIT_PASSWORD: body.password,
-  };
-  const r = spawnSync(PYTHON_BIN, [script], {
+  const r = spawnSync(PYTHON_BIN, args, {
     cwd: SCRAPER_DIR,
     env,
     encoding: "utf-8",
     timeout: 30000,
   });
-  const stdout = r.stdout || "";
-  const stderr = r.stderr || "";
+  const stdout = (r.stdout || "").trim();
+  const stderr = (r.stderr || "").trim();
 
-  if (r.status === 0 && /\[OK\] Login direct success/.test(stdout)) {
-    return NextResponse.json({ ok: true, mode: "direct" });
+  // Parse the LAST line as JSON (script emits structured JSON)
+  const lastLine = stdout.split("\n").filter((l) => l.trim()).pop() || "";
+  let parsed: Record<string, unknown> | null = null;
+  try {
+    parsed = JSON.parse(lastLine);
+  } catch {
+    return NextResponse.json(
+      {
+        error: "Script output not JSON",
+        stdout,
+        stderr,
+        exitCode: r.status,
+      },
+      { status: 500 },
+    );
   }
-  if (r.status === 0 && /\[OTP\] State saved/.test(stdout)) {
-    return NextResponse.json({ ok: true, mode: "awaiting_otp" });
+
+  if (parsed && "error" in parsed) {
+    return NextResponse.json(
+      { ...parsed, stderr: stderr || undefined },
+      { status: 400 },
+    );
   }
-  return NextResponse.json(
-    { error: "Login gagal", stdout, stderr },
-    { status: 400 },
-  );
+  return NextResponse.json(parsed);
 }

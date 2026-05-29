@@ -778,6 +778,27 @@ function StateBadge({ state }: { state: JobStatus["state"] }) {
 
 // ─── Login Modal ───────────────────────────────────────────────────────────
 
+type LoginPhase =
+  | "credentials"
+  | "choose_channel"
+  | "enter_otp"
+  | "next_factor";
+
+interface LoginCtx {
+  phase: LoginPhase;
+  availableChannels: string[];
+  completedChannels: string[];
+  currentChannel: string | null;
+  preview: Record<string, unknown> | null;
+}
+
+const CHANNEL_LABELS: Record<string, string> = {
+  CHANNEL_EMAIL: "Email",
+  CHANNEL_WHATSAPP: "WhatsApp",
+  CHANNEL_SMS: "SMS",
+  CHANNEL_AUTHENTICATOR: "Authenticator app",
+};
+
 function LoginModal({
   onClose,
   onSuccess,
@@ -788,26 +809,28 @@ function LoginModal({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [otp, setOtp] = useState("");
-  const [mode, setMode] = useState<"login" | "otp">("login");
+  const [ctx, setCtx] = useState<LoginCtx>({
+    phase: "credentials",
+    availableChannels: [],
+    completedChannels: [],
+    currentChannel: null,
+    preview: null,
+  });
   const [posting, setPosting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  async function submitLogin() {
+  async function post(body: Record<string, unknown>) {
     setErr(null);
     setPosting(true);
     try {
       const r = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify(body),
       });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error || "Login gagal");
-      if (data.mode === "direct") return onSuccess();
-      if (data.mode === "awaiting_otp") {
-        setMode("otp");
-        return;
-      }
+      const data = (await r.json()) as Record<string, unknown>;
+      if (!r.ok) throw new Error(String(data.error || "Failed"));
+      handleResponse(data);
     } catch (e) {
       setErr(String(e));
     } finally {
@@ -815,24 +838,59 @@ function LoginModal({
     }
   }
 
-  async function submitOtp() {
-    setErr(null);
-    setPosting(true);
-    try {
-      const r = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ otp }),
-      });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error || "OTP verify gagal");
-      onSuccess();
-    } catch (e) {
-      setErr(String(e));
-    } finally {
-      setPosting(false);
+  function handleResponse(data: Record<string, unknown>) {
+    const mode = data.mode as string;
+    switch (mode) {
+      case "direct":
+      case "otp_verified":
+        onSuccess();
+        return;
+      case "awaiting_channel":
+        setCtx((prev) => ({
+          ...prev,
+          phase: "choose_channel",
+          availableChannels: (data.channels as string[]) || [],
+          preview: (data.preview as Record<string, unknown>) || null,
+        }));
+        return;
+      case "otp_sent":
+        setCtx((prev) => ({
+          ...prev,
+          phase: "enter_otp",
+          currentChannel: (data.channel as string) || null,
+          preview: (data.preview as Record<string, unknown>) || null,
+        }));
+        return;
+      case "awaiting_next_factor":
+        setCtx((prev) => ({
+          ...prev,
+          phase: "next_factor",
+          availableChannels: (data.channelsRemaining as string[]) || [],
+          completedChannels: (data.channelsCompleted as string[]) || prev.completedChannels,
+          currentChannel: null,
+        }));
+        setOtp("");
+        return;
+      default:
+        setErr(`Unknown mode: ${mode}`);
     }
   }
+
+  function submitCredentials() {
+    void post({ email, password });
+  }
+  function requestChannel(channel: string) {
+    void post({ requestOtp: channel });
+  }
+  function submitOtp() {
+    void post({ otp });
+  }
+
+  const previewStr = (() => {
+    if (!ctx.preview) return null;
+    const p = ctx.preview as Record<string, string>;
+    return p.email || p.whatsapp || p.phone || p.target || null;
+  })();
 
   return (
     <div
@@ -845,14 +903,27 @@ function LoginModal({
       >
         <div className="mb-4 flex items-center justify-between">
           <h2 className="font-mono text-sm uppercase tracking-wider">
-            $ {mode === "login" ? "stockbit.login" : "stockbit.otp"}
+            $ stockbit.{ctx.phase}
           </h2>
           <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300">
             ✕
           </button>
         </div>
 
-        {mode === "login" ? (
+        {/* Phase progress dot */}
+        {ctx.phase !== "credentials" && (
+          <div className="mb-3 flex items-center gap-1.5 text-[10px] text-zinc-500">
+            <span className="text-emerald-400">✓ login</span>
+            {ctx.completedChannels.map((c) => (
+              <span key={c} className="text-emerald-400">
+                ✓ {CHANNEL_LABELS[c] ?? c}
+              </span>
+            ))}
+            <span className="text-amber-400">● next</span>
+          </div>
+        )}
+
+        {ctx.phase === "credentials" && (
           <div className="space-y-3">
             <FormRow label="email">
               <input
@@ -873,7 +944,7 @@ function LoginModal({
               />
             </FormRow>
             <button
-              onClick={submitLogin}
+              onClick={submitCredentials}
               disabled={posting || !email || !password}
               className="w-full rounded border border-emerald-700 bg-emerald-600 py-2 text-xs font-semibold text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:border-zinc-800 disabled:bg-zinc-900 disabled:text-zinc-600"
             >
@@ -884,10 +955,49 @@ function LoginModal({
               di .token.json di scraper folder.
             </p>
           </div>
-        ) : (
+        )}
+
+        {(ctx.phase === "choose_channel" || ctx.phase === "next_factor") && (
           <div className="space-y-3">
             <p className="rounded border border-amber-900 bg-amber-950 p-2 text-xs text-amber-300">
-              OTP dikirim ke email. Masukin 6 digit di bawah.
+              {ctx.phase === "next_factor"
+                ? "Stockbit minta verifikasi tambahan. Pilih channel berikutnya:"
+                : "Stockbit detect new device. Pilih channel buat kirim OTP:"}
+            </p>
+            <div className="flex flex-col gap-1.5">
+              {ctx.availableChannels.length === 0 ? (
+                <p className="text-xs text-zinc-500">
+                  Channel list kosong dari Stockbit. Coba manual:
+                </p>
+              ) : null}
+              {(ctx.availableChannels.length
+                ? ctx.availableChannels
+                : ["CHANNEL_EMAIL", "CHANNEL_WHATSAPP", "CHANNEL_SMS"]
+              ).map((c) => (
+                <button
+                  key={c}
+                  onClick={() => requestChannel(c)}
+                  disabled={posting}
+                  className="flex items-center justify-between rounded border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs hover:border-emerald-700 hover:text-emerald-300 disabled:opacity-50"
+                >
+                  <span>{CHANNEL_LABELS[c] ?? c}</span>
+                  <span className="font-mono text-[10px] text-zinc-500">
+                    {c}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {ctx.phase === "enter_otp" && (
+          <div className="space-y-3">
+            <p className="rounded border border-amber-900 bg-amber-950 p-2 text-xs text-amber-300">
+              OTP dikirim via{" "}
+              <strong>
+                {CHANNEL_LABELS[ctx.currentChannel ?? ""] ?? ctx.currentChannel}
+              </strong>
+              {previewStr ? ` ke ${previewStr}` : ""}.
             </p>
             <FormRow label="otp">
               <input
@@ -906,6 +1016,18 @@ function LoginModal({
               className="w-full rounded border border-emerald-700 bg-emerald-600 py-2 text-xs font-semibold text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:border-zinc-800 disabled:bg-zinc-900 disabled:text-zinc-600"
             >
               {posting ? "verifying…" : "> verify"}
+            </button>
+            <button
+              onClick={() =>
+                setCtx((prev) => ({
+                  ...prev,
+                  phase: "choose_channel",
+                  currentChannel: null,
+                }))
+              }
+              className="w-full text-[10px] text-zinc-500 hover:text-zinc-300"
+            >
+              ← ganti channel
             </button>
           </div>
         )}
