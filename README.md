@@ -1,36 +1,96 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Scrapebit
 
-## Getting Started
+Tools selective scrape Stockbit — pilih ticker, tahun, field, format. UI Next.js
+yang spawn scrapy spider lokal di scraper folder.
 
-First, run the development server:
+**Local-only.** Bukan SaaS. Jalannya di laptop yang udah punya
+[stockbit-scraper](#dependency-stockbit-scraper) terinstall + login Stockbit.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## Stack
+
+- Next.js 16 (App Router) + TypeScript + Tailwind 4
+- Node child_process untuk spawn scrapy + python subprocess
+- File-backed job tracker (no DB) — state di `<scraper>/scrapebit-jobs/<jobId>/`
+
+## Dependency: stockbit-scraper
+
+Scrapebit nge-spawn scrapy dari path hardcoded di `lib/config.ts`:
+
+```ts
+export const SCRAPER_DIR = "D:\\Claude-Projects\\Data\\Market Data Sheet\\stockbit-scraper";
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Folder itu harus punya:
+- `venv/Scripts/scrapy.exe` + `venv/Scripts/python.exe` — Python venv dengan
+  scrapy + openpyxl + requests + dotenv installed
+- `stockbit/spiders/stockbit.py` + `stockbit_quarterly.py` — spider definitions
+- `login_token.py` — non-interactive auth (bashid: bikin 2026-05-28)
+- `scrapebit_convert.py` — JSON → Excel/CSV converter (bashid: bikin 2026-05-29)
+- `tickers_saham.json` — daftar saham bersih hasil `filter_saham.py`
+- `.env` dengan `STOCKBIT_USERNAME` + `STOCKBIT_PASSWORD`
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Update path-nya di `lib/config.ts` kalau scraper lo di tempat lain.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Run
 
-## Learn More
+```bash
+npm install
+npm run dev
+# buka http://localhost:3000
+```
 
-To learn more about Next.js, take a look at the following resources:
+## Fitur
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- **Ticker picker** — search by ticker/nama/sektor, multi-select, sector
+  quick-chips (Financials 107, Energy 92, dll), `select all matching` + invert
+  + clear
+- **Periode** (multi-select) — Annual & Quarterly. Default both = full snapshot.
+  Spawn sequential (annual dulu, then quarterly).
+- **Range tahun** — 2010–current. Post-filter periode di output.
+- **Field selector** — Income Statement (wajib), Balance Sheet, Cash Flow,
+  Dividend, Key Stats, Emitten Info, Price Performance. Skip = save waktu.
+- **Format output** — JSON / Excel (2 sheet: Annual + Quarterly, grouped by
+  section) / CSV (long format).
+- **Auth banner** — cek `.token.json` exp tiap 60s. Login modal: email+password,
+  OTP flow kalau new device.
+- **Refresh ticker** — spawn `scrapy crawl symbol` + `process_symbols.py` +
+  `filter_saham.py`. Auto-reload list pas selesai.
+- **Job panel** — phase indicator (annual/quarterly), progress bar combined,
+  log tail (real-time), download per-period.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## API surface
 
-## Deploy on Vercel
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/api/auth/status` | GET | Cek validity token Stockbit dari `.token.json` |
+| `/api/auth/login` | POST | Login (mode `direct`/`awaiting_otp`) atau verify OTP |
+| `/api/tickers` | GET | Reload ticker list dari scraper folder |
+| `/api/refresh-tickers` | POST | Spawn symbol crawl + filter chain, return jobId |
+| `/api/scrape` | POST | Spawn scrapy chain dengan config, return jobId |
+| `/api/scrape/[jobId]/status` | GET | State + progress + log tail (polled 2s) |
+| `/api/scrape/[jobId]/download?file=...` | GET | Serve output file |
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Workflow contoh
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+**Snapshot full data untuk 5 saham bank:**
+1. Klik chip `Financials 107`
+2. Search tambahan: `BBCA` (chip auto-cleared, search box terisi)
+3. ✓ select all matching (kalau mau bulk) atau pilih satu-satu
+4. ✓ Annual ✓ Quarterly
+5. Year 2020–2026
+6. Pilih field yang diperluin (IS+BS+CF udah default)
+7. Format Excel
+8. Start
+9. Tunggu 1-3 menit (5 ticker × 2 spider)
+10. Download `output_annual.xlsx` + `output_quarterly.xlsx`
+
+## Catatan
+
+- **Windows path with spaces**: Backend pakai Node-native sequential spawn
+  (no `cmd /c` chaining) karena cmd.exe quote escaping rusak path scraper
+  yang ada spasi
+- **Stockbit format quarterly**: Per fix 2026-05-28, format period diskret
+  (`Q126`, `Q425`) bukan cumulative YTD (`3M25`, `6M25`). Spider udah handle
+  keduanya
+- **Output converter**: `scrapebit_convert.py` di scraper folder, split jadi
+  2 sheet Excel (Annual + Quarterly), group by section (IS/BS/CF/Ratios)
