@@ -4,7 +4,8 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import {
-  SCRAPER_DIR,
+  SCRAPER_SOURCE_DIR,
+  STATE_DIR,
   SCRAPY_BIN,
   PYTHON_BIN,
   type JobStatus,
@@ -58,7 +59,10 @@ export async function POST() {
 
 async function runRefresh(jobId: string): Promise<void> {
   const log = logFile(jobId);
-  const symbolJson = path.join(SCRAPER_DIR, "symbol.json");
+  // Output paths point to STATE_DIR (writable) — symbol_*, processed_*, tickers_saham
+  const symbolJson = path.join(STATE_DIR, "symbol.json");
+  const processedJson = path.join(STATE_DIR, "processed_symbols.json");
+  const tickersJson = path.join(STATE_DIR, "tickers_saham.json");
 
   try {
     fs.appendFileSync(log, "[REFRESH] Step 1/3: scrapy crawl symbol\n");
@@ -66,10 +70,19 @@ async function runRefresh(jobId: string): Promise<void> {
     await runOnce(SCRAPY_BIN, ["crawl", "symbol", "-o", symbolJson], log);
 
     fs.appendFileSync(log, "[REFRESH] Step 2/3: process_symbols.py\n");
-    await runOnce(PYTHON_BIN, ["process_symbols.py"], log);
+    // Pass STATE_DIR via env biar python script tau di mana write output
+    await runOnce(
+      PYTHON_BIN,
+      ["process_symbols.py", "--input", symbolJson, "--output", processedJson],
+      log,
+    );
 
     fs.appendFileSync(log, "[REFRESH] Step 3/3: filter_saham.py\n");
-    await runOnce(PYTHON_BIN, ["filter_saham.py"], log);
+    await runOnce(
+      PYTHON_BIN,
+      ["filter_saham.py", "--input", symbolJson, "--output", tickersJson],
+      log,
+    );
 
     fs.appendFileSync(log, "[REFRESH] Done\n");
     markState(jobId, "done", null);
@@ -83,8 +96,12 @@ function runOnce(bin: string, args: string[], logPath: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const stream = fs.openSync(logPath, "a");
     const child = spawn(bin, args, {
-      cwd: SCRAPER_DIR,
-      env: { ...process.env, PYTHONUNBUFFERED: "1" },
+      cwd: SCRAPER_SOURCE_DIR,
+      env: {
+        ...process.env,
+        PYTHONUNBUFFERED: "1",
+        SCRAPEBIT_STATE_DIR: STATE_DIR,
+      },
       stdio: ["ignore", stream, stream],
       windowsHide: true,
     });

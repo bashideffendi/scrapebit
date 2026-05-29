@@ -2,19 +2,19 @@ import "server-only";
 import { NextResponse } from "next/server";
 import fs from "node:fs";
 import path from "node:path";
-import { SCRAPER_DIR } from "@/lib/config";
+import { STATE_DIR } from "@/lib/config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
  * GET /api/auth/status
- * Cek validity Stockbit token dari .token.json.
+ * Cek validity Stockbit token dari .token.json di STATE_DIR.
  * Format: { token, exp } — exp unix timestamp seconds.
  */
 export async function GET() {
   try {
-    const tokenFile = path.join(SCRAPER_DIR, ".token.json");
+    const tokenFile = path.join(STATE_DIR, ".token.json");
     if (!fs.existsSync(tokenFile)) {
       return NextResponse.json({ valid: false, reason: "no_token" });
     }

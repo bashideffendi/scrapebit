@@ -1,0 +1,32 @@
+# Generated artifacts
+.next
+.vercel
+node_modules
+out
+build
+dist
+
+# Editor / OS
+.DS_Store
+.vscode
+.idea
+*.swp
+
+# Logs / runtime
+*.log
+*.pid
+npm-debug.log*
+
+# Git
+.git
+.gitignore
+
+# Tests
+coverage
+
+# Env (mounted via Railway env vars or volume)
+.env
+.env.*
+
+# Docs (already in image via README/COPY if needed)
+*.md

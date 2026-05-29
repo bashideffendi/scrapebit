@@ -1,22 +1,44 @@
 /**
- * Scrapebit shared config — paths, types, constants.
- * Local-only app. Spawn scrapy yang udah di-install di scraper folder.
+ * Scrapebit shared config.
+ *
+ * Path resolution (env-overridable buat Docker/Railway):
+ *   SCRAPER_SOURCE_DIR — readonly source code (spiders, scripts, requirements).
+ *     Default: D:\Claude-Projects\Data\Market Data Sheet\stockbit-scraper (lokal Bashid).
+ *     Docker: /app/scrapy-bundle (bundled di image)
+ *   STATE_DIR — writable runtime state (.token.json, tickers_saham.json, jobs).
+ *     Default: same as SCRAPER_SOURCE_DIR (lokal).
+ *     Docker: /data (persistent volume mount).
+ *   PYTHON_BIN — path ke python.exe / python3 executable.
+ *     Default: <SCRAPER_SOURCE_DIR>/venv/Scripts/python.exe (lokal Windows venv).
+ *     Docker: /usr/bin/python3 (system Python).
+ *   SCRAPY_BIN — path ke scrapy executable.
+ *     Default: <SCRAPER_SOURCE_DIR>/venv/Scripts/scrapy.exe (lokal venv).
+ *     Docker: /usr/local/bin/scrapy (pip-installed system-wide).
  */
 
 import path from "node:path";
 
-/** Absolute path ke scraper folder. Spawn scrapy dari sini. */
-export const SCRAPER_DIR =
+const DEFAULT_SCRAPER_DIR =
   "D:\\Claude-Projects\\Data\\Market Data Sheet\\stockbit-scraper";
 
-/** Path ke scrapy.exe di venv. */
-export const SCRAPY_BIN = path.join(SCRAPER_DIR, "venv", "Scripts", "scrapy.exe");
+export const SCRAPER_SOURCE_DIR =
+  process.env.SCRAPER_SOURCE_DIR || DEFAULT_SCRAPER_DIR;
 
-/** Path ke python.exe di venv (buat parse-excel post-process kalau format=excel). */
-export const PYTHON_BIN = path.join(SCRAPER_DIR, "venv", "Scripts", "python.exe");
+export const STATE_DIR = process.env.STATE_DIR || SCRAPER_SOURCE_DIR;
 
-/** Folder buat output job + log per scrape. */
-export const JOBS_DIR = path.join(SCRAPER_DIR, "scrapebit-jobs");
+export const PYTHON_BIN =
+  process.env.PYTHON_BIN ||
+  path.join(SCRAPER_SOURCE_DIR, "venv", "Scripts", "python.exe");
+
+export const SCRAPY_BIN =
+  process.env.SCRAPY_BIN ||
+  path.join(SCRAPER_SOURCE_DIR, "venv", "Scripts", "scrapy.exe");
+
+/** Backward-compat alias — beberapa file lama pakai SCRAPER_DIR; sekarang itu = source. */
+export const SCRAPER_DIR = SCRAPER_SOURCE_DIR;
+
+/** Folder buat output job + log per scrape. Di STATE_DIR biar persistent. */
+export const JOBS_DIR = path.join(STATE_DIR, "scrapebit-jobs");
 
 /** Available scrape fields (endpoint groups). */
 export const SCRAPE_FIELDS = [
@@ -47,17 +69,17 @@ export const PERIOD_TYPES = [
 export type PeriodType = (typeof PERIOD_TYPES)[number]["id"];
 
 export interface ScrapeRequest {
-  tickers: string[];          // ["BBCA","BBRI",...]
-  yearFrom: number;           // e.g. 2020
-  yearTo: number;             // e.g. 2026
-  fields: ScrapeFieldId[];    // ["income_statement","balance_sheet"]
-  periods: PeriodType[];      // ["annual","quarterly"] — multi-select, min 1
-  format: OutputFormat;       // "json" | "excel" | "csv"
+  tickers: string[];
+  yearFrom: number;
+  yearTo: number;
+  fields: ScrapeFieldId[];
+  periods: PeriodType[];
+  format: OutputFormat;
 }
 
 export interface OutputFile {
   period: PeriodType;
-  filename: string;           // e.g. "output_annual.json"
+  filename: string;
   sizeBytes: number;
 }
 
@@ -66,12 +88,10 @@ export interface JobStatus {
   state: "queued" | "running" | "done" | "failed";
   startedAt: number;
   endedAt: number | null;
-  /** Combined progress across all periods (current/total ticker, sum across phases). */
   progress: { current: number; total: number };
-  /** Current phase if multi-period (annual / quarterly). */
   currentPhase: PeriodType | null;
-  logTail: string[];          // last 20 lines
-  outputs: OutputFile[];      // populated as each spider finishes
+  logTail: string[];
+  outputs: OutputFile[];
   error: string | null;
   config: ScrapeRequest;
 }

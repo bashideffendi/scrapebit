@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { SCRAPER_DIR, PYTHON_BIN } from "@/lib/config";
+import { SCRAPER_SOURCE_DIR, STATE_DIR, PYTHON_BIN } from "@/lib/config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,16 +33,20 @@ export async function POST(req: Request) {
     otp?: string;
   };
 
-  const script = path.join(SCRAPER_DIR, "login_token.py");
+  const script = path.join(SCRAPER_SOURCE_DIR, "login_token.py");
   if (!fs.existsSync(script)) {
     return NextResponse.json(
-      { error: "login_token.py tidak ditemukan di scraper folder" },
+      { error: "login_token.py tidak ditemukan di SCRAPER_SOURCE_DIR" },
       { status: 500 },
     );
   }
 
   let args: string[];
-  let env = process.env;
+  // SCRAPEBIT_STATE_DIR: dipake login_token.py buat write .token.json & .login_state.json
+  let env: NodeJS.ProcessEnv = {
+    ...process.env,
+    SCRAPEBIT_STATE_DIR: STATE_DIR,
+  };
 
   if (body.otp) {
     args = [script, "--otp", body.otp];
@@ -51,7 +55,7 @@ export async function POST(req: Request) {
   } else if (body.email && body.password) {
     args = [script];
     env = {
-      ...process.env,
+      ...env,
       STOCKBIT_USERNAME: body.email,
       STOCKBIT_PASSWORD: body.password,
     };
@@ -63,7 +67,7 @@ export async function POST(req: Request) {
   }
 
   const r = spawnSync(PYTHON_BIN, args, {
-    cwd: SCRAPER_DIR,
+    cwd: SCRAPER_SOURCE_DIR,
     env,
     encoding: "utf-8",
     timeout: 30000,

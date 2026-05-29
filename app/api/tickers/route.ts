@@ -2,21 +2,26 @@ import "server-only";
 import { NextResponse } from "next/server";
 import fs from "node:fs";
 import path from "node:path";
-import { SCRAPER_DIR } from "@/lib/config";
+import { STATE_DIR, SCRAPER_SOURCE_DIR } from "@/lib/config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
  * GET /api/tickers
- * Baca tickers_saham.json langsung dari scraper folder (selalu fresh after refresh).
- * Returns { tickers, lastModifiedIso, count }.
+ * Baca tickers_saham.json. Priority:
+ *   1. STATE_DIR (kalau refresh udah pernah dijalanin di server ini)
+ *   2. SCRAPER_SOURCE_DIR (initial bootstrap dari image)
  */
 export async function GET() {
-  const file = path.join(SCRAPER_DIR, "tickers_saham.json");
-  if (!fs.existsSync(file)) {
+  const candidates = [
+    path.join(STATE_DIR, "tickers_saham.json"),
+    path.join(SCRAPER_SOURCE_DIR, "tickers_saham.json"),
+  ];
+  const file = candidates.find((p) => fs.existsSync(p));
+  if (!file) {
     return NextResponse.json(
-      { error: "tickers_saham.json tidak ditemukan. Run refresh dulu." },
+      { error: "tickers_saham.json tidak ditemukan" },
       { status: 404 },
     );
   }
@@ -26,5 +31,6 @@ export async function GET() {
     tickers: data,
     count: data.length,
     lastModifiedIso: stat.mtime.toISOString(),
+    source: file === candidates[0] ? "state" : "bundled",
   });
 }

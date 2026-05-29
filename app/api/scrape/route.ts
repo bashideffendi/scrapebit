@@ -4,7 +4,8 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import {
-  SCRAPER_DIR,
+  SCRAPER_SOURCE_DIR,
+  STATE_DIR,
   SCRAPY_BIN,
   PYTHON_BIN,
   type OutputFormat,
@@ -133,7 +134,7 @@ async function convertOutput(
 ): Promise<void> {
   const ext = format === "excel" ? "xlsx" : "csv";
   const outputPath = jsonPath.replace(/\.json$/, `.${ext}`);
-  const converterScript = path.join(SCRAPER_DIR, "scrapebit_convert.py");
+  const converterScript = path.join(SCRAPER_SOURCE_DIR, "scrapebit_convert.py");
 
   await runOnce(
     PYTHON_BIN,
@@ -154,8 +155,12 @@ function runOnce(bin: string, args: string[], logPath: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const stream = fs.openSync(logPath, "a");
     const child = spawn(bin, args, {
-      cwd: SCRAPER_DIR,
-      env: { ...process.env, PYTHONUNBUFFERED: "1" },
+      cwd: SCRAPER_SOURCE_DIR,
+      env: {
+        ...process.env,
+        PYTHONUNBUFFERED: "1",
+        SCRAPEBIT_STATE_DIR: STATE_DIR,
+      },
       stdio: ["ignore", stream, stream],
       // Important: NO shell, NO cmd /c. Direct spawn, args as array.
       // Windows handles path with spaces correctly when args is array.
